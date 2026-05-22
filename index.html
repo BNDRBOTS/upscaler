@@ -583,7 +583,6 @@ document.addEventListener('paste', e => {
   }
 });
 
-
 // ═══════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════
@@ -787,12 +786,13 @@ async function runUpscale() {
   el.resultSkeleton.classList.remove('hidden');
   el.resultSkeleton.classList.add('processing');
   el.skeletonLabel.textContent = 'Processing… 0s';
+  
   // Elapsed timer in skeleton
   let _timerInterval = null;
   let _timerStart = Date.now();
   const _tick = () => {
     const s = Math.floor((Date.now() - _timerStart) / 1000);
-    el.skeletonLabel.textContent = `Processing… ${s}s`;
+    el.skeletonLabel.textContent = `Processing… ${s}s (CPU inference is slow)`;
   };
   _timerInterval = setInterval(_tick, 1000);
   _tick();
@@ -803,11 +803,12 @@ async function runUpscale() {
   try {
     const form = new FormData();
     form.append('file', state.file);
-    // scale sent as query param only — backend reads from Query()
+    
+    // 10 MINUTE TIMEOUT FIX
     const r = await fetch(`${url}/upscale?scale=${state.scale}`, {
       method: 'POST',
       body: form,
-      signal: AbortSignal.timeout(180_000),
+      signal: AbortSignal.timeout(600_000), 
     });
 
     if (!r.ok) {
@@ -843,16 +844,14 @@ async function runUpscale() {
     el.resultImg.alt = `Upscaled ${state.scale}×: ${state.file.name}`;
 
   } catch (err) {
-    // Reset skeleton to idle state (not broken)
     el.resultSkeleton.classList.remove('processing');
     el.skeletonLabel.textContent = 'Failed — try again';
-    // User-readable error
+    
     const msg = err.name === 'TimeoutError'
-      ? 'Request timed out after 3 minutes. Try a smaller image or check Railway is awake.'
+      ? 'Request timed out after 10 minutes. Try a smaller image or 2x scale.'
       : (err.message || 'Unknown error');
     showMsg(msg.length > 250 ? msg.slice(0, 250) + '…' : msg, 'error');
   } finally {
-
     if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
     el.upscaleBtn.disabled  = false;
     el.upscaleBtn.classList.remove('loading');
