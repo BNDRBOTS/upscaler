@@ -13,21 +13,21 @@ app.add_middleware(
     expose_headers=["Content-Type", "Content-Disposition"],
 )
 
-BASE_DIR    = pathlib.Path(__file__).parent
-SCRIPT      = BASE_DIR / "inference_realesrgan.py"
+BASE_DIR = pathlib.Path(__file__).parent
+SCRIPT = BASE_DIR / "inference_realesrgan.py"
 WEIGHTS_DIR = BASE_DIR / "weights"
-MODEL_X4    = WEIGHTS_DIR / "RealESRGAN_x4plus.pth"
-MODEL_X2    = WEIGHTS_DIR / "RealESRGAN_x2plus.pth"
+MODEL_X4 = WEIGHTS_DIR / "RealESRGAN_x4plus.pth"
+MODEL_X2 = WEIGHTS_DIR / "RealESRGAN_x2plus.pth"
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB hard limit
 
-# Detect if CUDA is available at startup so we know whether --half is safe
 def _cuda_available() -> bool:
     try:
         import torch
         return torch.cuda.is_available()
     except Exception:
         return False
+
 
 USE_HALF = _cuda_available()
 
@@ -43,33 +43,25 @@ def health():
 
 
 @app.post("/upscale")
-async def upscale(
-    file: UploadFile = File(...),
-    scale: int = Query(default=4, ge=2, le=4),
-):
-    # Enforce supported scale values
+async def upscale(file: UploadFile = File(...), scale: int = Query(default=4, ge=2, le=4)):
     if scale not in (2, 4):
         raise HTTPException(400, detail="scale must be 2 or 4")
 
-    # Validate MIME type
     allowed_types = {"image/jpeg", "image/png", "image/webp"}
     if file.content_type not in allowed_types:
         raise HTTPException(400, detail="Unsupported file type. Use JPEG, PNG, or WebP.")
 
-    # Read with size guard
     data = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, detail=f"File exceeds 20 MB limit.")
+        raise HTTPException(413, detail="File exceeds 20 MB limit.")
 
-    # Select model name and confirm weight exists
-    model_name  = "RealESRGAN_x4plus" if scale == 4 else "RealESRGAN_x2plus"
-    model_path  = MODEL_X4 if scale == 4 else MODEL_X2
+    model_name = "RealESRGAN_x4plus" if scale == 4 else "RealESRGAN_x2plus"
+    model_path = MODEL_X4 if scale == 4 else MODEL_X2
     if not model_path.exists():
         raise HTTPException(503, detail=f"Model weights not found: {model_path.name}. Container may still be initializing.")
 
-    # Safe extension from filename; default png
-    raw_ext = (file.filename or "input.png").rsplit(".", 1)
-    ext = raw_ext[-1].lower() if len(raw_ext) == 2 and raw_ext[-1].lower() in ("jpg","jpeg","png","webp") else "png"
+    raw_ext = (file.filename or "input.png").rsplit('.', 1)
+    ext = raw_ext[-1].lower() if len(raw_ext) == 2 and raw_ext[-1].lower() in ("jpg", "jpeg", "png", "webp") else "png"
 
     tmpdir = tempfile.mkdtemp()
     try:
@@ -88,7 +80,6 @@ async def upscale(
             "--outscale", str(scale),
             "--model_path", str(model_path),
         ]
-        # fp16 only on CUDA — CPU inference must use fp32
         if USE_HALF:
             cmd.append("--half")
 
@@ -96,7 +87,7 @@ async def upscale(
             cmd,
             capture_output=True,
             text=True,
-            timeout=150,   # longer than frontend 180s would allow for edge cases; Railway kills at 300s
+            timeout=150,
             cwd=str(BASE_DIR),
         )
 
@@ -108,9 +99,9 @@ async def upscale(
         if not out_files:
             raise HTTPException(500, detail="No output file was produced.")
 
-        out_path   = out_files[0]
+        out_path = out_files[0]
         media_type = "image/png" if out_path.suffix.lower() == ".png" else "image/jpeg"
-        out_name   = out_path.name
+        out_name = out_path.name
 
         with open(out_path, "rb") as fh:
             out_data = fh.read()
