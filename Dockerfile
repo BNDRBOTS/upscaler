@@ -15,36 +15,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip install --no-cache-dir --upgrade pip
 
+# CPU-only torch first
 RUN pip install --no-cache-dir \
     torch==2.3.1+cpu torchvision==0.18.1+cpu \
     --index-url https://download.pytorch.org/whl/cpu
 
+COPY requirements.txt .
+
+# Only the non-ambiguous base deps go here
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Grab Real-ESRGAN source
+RUN git clone --depth 1 https://github.com/xinntao/Real-ESRGAN.git /tmp/realesrgan
+
+# Install the GitHub-fixed BasicSR commit directly
 RUN PIP_USE_PEP517=1 pip install --no-cache-dir \
-    fastapi==0.111.0 \
-    "uvicorn[standard]==0.29.0" \
-    python-multipart==0.0.9 \
-    "Pillow>=10.0.0" \
-    "numpy>=1.24.0" \
-    "opencv-python>=4.8.0" \
-    "facexlib>=0.3.0" \
-    "gfpgan>=1.3.8" \
-    "basicsr-fixed>=1.4.2.4" \
-    "realesrgan>=0.3.0"
+    "basicsr @ git+https://github.com/XPixelGroup/BasicSR@8d56e3a045f9fb3e1d8872f92ee4a4f07f886b0a"
 
-# Fix the broken torchvision import across all basicsr files
-RUN find /usr/local/lib/python3.11/site-packages/basicsr -type f -name "*.py" -exec sed -i 's/from torchvision.transforms.functional_tensor import rgb_to_grayscale/from torchvision.transforms.functional import rgb_to_grayscale/g' {} +
+# Install Real-ESRGAN package code without letting pip resolve/reinstall deps
+RUN pip install --no-cache-dir --no-deps /tmp/realesrgan
 
-RUN git clone --depth 1 https://github.com/xinntao/Real-ESRGAN.git /tmp/realesrgan \
-    && cp /tmp/realesrgan/inference_realesrgan.py /app/ \
-    && rm -rf /tmp/realesrgan
+# Copy the inference script we call from main.py
+RUN cp /tmp/realesrgan/inference_realesrgan.py /app/inference_realesrgan.py
 
+# Model weights
 RUN mkdir -p /app/weights \
     && wget -q https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth -O /app/weights/RealESRGAN_x4plus.pth \
     && wget -q https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth -O /app/weights/RealESRGAN_x2plus.pth
 
-# Fail the build immediately if the imports are still broken
-RUN python -c "import basicsr.data.realesrgan_dataset; print('basicsr OK')"
-RUN python -c "import cv2; print('cv2 OK')"
+# Fail the build if the exact import chain is still broken
+RUN python -c "import cv2; print('cv2 OK')" \
+    && python -c "from basicsr.data import realesrgan_dataset; from realesrgan import RealESRGANer; print('imports OK')"
 
 COPY main.py .
 
